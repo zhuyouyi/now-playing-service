@@ -28,3 +28,71 @@ jobs:
           name: now-playing-with-game
           path: target/*.jar
           if-no-files-found: error
+
+  package-setup-exe:
+    needs: build-windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download built jar
+        uses: actions/download-artifact@v4
+        with:
+          name: now-playing-with-game
+          path: staging
+
+      - name: Set up JDK 11 (as bundled runtime)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - name: Prepare staging folder
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force staging\jre | Out-Null
+          Copy-Item "$env:JAVA_HOME\*" "staging\jre" -Recurse -Force
+          Copy-Item "Assets" "staging\Assets" -Recurse -Force
+          Copy-Item "Plugins" "staging\Plugins" -Recurse -Force
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Write installer script
+        shell: pwsh
+        run: |
+          @'
+          [Setup]
+          AppName=Now Playing
+          AppVersion=2.1.5-game
+          DefaultDirName={autopf}\Now Playing
+          DefaultGroupName=Now Playing
+          OutputDir=Output
+          OutputBaseFilename=NowPlaying-with-game-setup
+          Compression=lzma2
+          SolidCompression=yes
+
+          [Files]
+          Source: "staging\now-playing-0.0.1-SNAPSHOT.jar"; DestDir: "{app}"
+          Source: "staging\jre\*"; DestDir: "{app}\jre"; Flags: recursesubdirs createallsubdirs
+          Source: "staging\Assets\*"; DestDir: "{app}\Assets"; Flags: recursesubdirs createallsubdirs
+          Source: "staging\Plugins\*"; DestDir: "{app}\Plugins"; Flags: recursesubdirs createallsubdirs
+
+          [Icons]
+          Name: "{group}\Now Playing"; Filename: "{app}\jre\bin\javaw.exe"; Parameters: "-jar ""{app}\now-playing-0.0.1-SNAPSHOT.jar"""
+          Name: "{autodesktop}\Now Playing"; Filename: "{app}\jre\bin\javaw.exe"; Parameters: "-jar ""{app}\now-playing-0.0.1-SNAPSHOT.jar"""
+
+          [Run]
+          Filename: "{app}\jre\bin\javaw.exe"; Parameters: "-jar ""{app}\now-playing-0.0.1-SNAPSHOT.jar"""; Flags: nowait postinstall skipifsilent
+          '@ | Set-Content installer.iss -Encoding UTF8
+
+      - name: Compile setup.exe
+        run: ISCC.exe installer.iss
+
+      - name: Upload setup.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: now-playing-setup-exe
+          path: Output\*.exe
+          if-no-files-found: error
