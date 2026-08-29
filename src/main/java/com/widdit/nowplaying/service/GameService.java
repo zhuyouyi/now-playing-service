@@ -5,6 +5,8 @@ import com.alibaba.fastjson.JSONObject;
 import com.widdit.nowplaying.entity.Game;
 import com.widdit.nowplaying.entity.GameProcess;
 import com.widdit.nowplaying.entity.GameSettings;
+import com.sun.jna.platform.win32.User32;
+import com.sun.jna.platform.win32.WinDef.HWND;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -72,6 +74,20 @@ public class GameService {
                         String.format(HEADER_CDN, appid),
                         sessionSeconds(key, now), null, "registry"),
                         key);
+                return;
+            }
+
+            // 前台窗口进程识别（借鉴 Kook/Oopz）：当前置顶窗口是游戏进程即认为是正在玩
+            String fgProc = foregroundProcessName();
+            if (!fgProc.isEmpty() && !isSystemProcess(fgProc)) {
+                GameProcess gp = settings.getCustomGames().get(fgProc);
+                String name = (gp != null && gp.getName() != null) ? gp.getName() : fgProc;
+                String platform = (gp != null && gp.getPlatform() != null) ? gp.getPlatform() : "custom";
+                String label = platformLabel(platform);
+                String key = "fg:" + fgProc;
+                log.info("前台进程识别到游戏 {} ({})", name, label);
+                setGame(buildGame(true, platform, label, name, null, null,
+                        sessionSeconds(key, now), null, "foreground"), key);
                 return;
             }
 
@@ -323,6 +339,41 @@ public class GameService {
         Collections.sort(list);
         return list;
     }
+
+    private String foregroundProcessName() {
+        try {
+            HWND fg = User32.INSTANCE.GetForegroundWindow();
+            if (fg == null) {
+                return "";
+            }
+            int[] pid = new int[1];
+            User32.INSTANCE.GetWindowThreadProcessId(fg, pid);
+            if (pid[0] <= 0) {
+                return "";
+            }
+            return ProcessHandle.of(pid[0])
+                    .map(h -> h.info().command().orElse(""))
+                    .map(p -> new java.io.File(p).getName())
+                    .map(n -> n.toLowerCase().replace(".exe", ""))
+                    .orElse("");
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private boolean isSystemProcess(String name) {
+        return SYSTEM_PROCESSES.contains(name);
+    }
+
+    private static final Set<String> SYSTEM_PROCESSES = new HashSet<>(Arrays.asList(
+            "explorer", "svchost", "system", "wininit", "winlogon", "dwm", "csrss", "services",
+            "lsass", "smss", "fontdrvhost", "dllhost", "taskhostw", "runtimebroker", "sihost",
+            "conhost", "audiodg", "spoolsv", "searchindexer", "ctfmon", "registry",
+            "memorycompression", "shellexperiencehost", "startmenuexperiencehost", "textinputhost",
+            "now-playing", "nowplayingservice", "msedgewebview2", "msedge", "chrome", "firefox",
+            "opera", "brave", "steam", "steamwebhelper", "wechat", "weixin", "qq", "qqnt",
+            "obs64", "obs", "explorer", "taskmgr", "devenv", "code", "manychat", "discord"
+    ));
 
     private GameProcess detectProcess() {
         Set<String> procs = new HashSet<>(detectRunningProcesses());
