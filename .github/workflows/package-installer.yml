@@ -43,6 +43,14 @@ jobs:
           repository: zhuyouyi/now-playing-frontend
           path: fe
 
+      - name: Setup Node (for Tauri frontend)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust (for Tauri shell)
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Build shell (Now Playing.exe)
         working-directory: fe
         run: |
