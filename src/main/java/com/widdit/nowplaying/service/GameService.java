@@ -6,7 +6,11 @@ import com.widdit.nowplaying.entity.Game;
 import com.widdit.nowplaying.entity.GameProcess;
 import com.widdit.nowplaying.entity.GameSettings;
 import com.sun.jna.platform.win32.User32;
+import com.sun.jna.platform.win32.Kernel32;
+import com.sun.jna.platform.win32.Tlhelp32;
+import com.sun.jna.platform.win32.WinNT.HANDLE;
 import com.sun.jna.platform.win32.WinDef.HWND;
+import com.sun.jna.ptr.IntByReference;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -346,18 +350,33 @@ public class GameService {
             if (fg == null) {
                 return "";
             }
-            com.sun.jna.ptr.IntByReference pidRef = new com.sun.jna.ptr.IntByReference();
+            IntByReference pidRef = new IntByReference();
             User32.INSTANCE.GetWindowThreadProcessId(fg, pidRef);
             int pid = pidRef.getValue();
             if (pid <= 0) {
                 return "";
             }
-            return ProcessHandle.of(pid)
-                    .map(h -> h.info().command().orElse(""))
-                    .map(p -> new java.io.File(p).getName())
-                    .map(n -> n.toLowerCase().replace(".exe", ""))
-                    .orElse("");
+            // 用 TLHELP32 枚举进程，按 PID 取进程可执行文件名（Windows 标准做法，拿得到其它进程）
+            HANDLE snap = Kernel32.INSTANCE.CreateToolhelp32Snapshot(Tlhelp32.TH32CS_SNAPPROCESS, 0);
+            if (snap == null || snap.equals(Kernel32.INVALID_HANDLE_VALUE)) {
+                return "";
+            }
+            try {
+                Tlhelp32.PROCESSENTRY32.ByReference pe = new Tlhelp32.PROCESSENTRY32.ByReference();
+                pe.dwSize = new com.sun.jna.platform.win32.WinDef.DWORD(pe.size());
+                boolean ok = Kernel32.INSTANCE.Process32First(snap, pe);
+                while (ok) {
+                    if (pe.th32ProcessID.intValue() == pid) {
+                        return new String(pe.szExeFile).trim().toLowerCase().replace(".exe", "");
+                    }
+                    ok = Kernel32.INSTANCE.Process32Next(snap, pe);
+                }
+            } finally {
+                Kernel32.INSTANCE.CloseHandle(snap);
+            }
+            return "";
         } catch (Exception e) {
+            log.warn("读取前台进程失败: {}", e.getMessage());
             return "";
         }
     }
