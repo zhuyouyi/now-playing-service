@@ -7,51 +7,61 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
   body { font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif;
-    display: flex; padding: 18px; }
+    display: flex; padding: 20px; }
   body { justify-content: flex-start; align-items: flex-end; }
   body.pos-tr { justify-content: flex-end; align-items: flex-start; }
   body.pos-br { justify-content: flex-end; align-items: flex-end; }
   body.pos-tl { justify-content: flex-start; align-items: flex-start; }
 
-  .card { display: flex; align-items: center; gap: 14px; padding: 10px 18px 10px 10px;
-    border-radius: 16px; background: linear-gradient(135deg, rgba(23,32,46,.94), rgba(7,10,16,.94));
-    border: 1px solid rgba(255,255,255,.10); box-shadow: 0 14px 38px rgba(0,0,0,.55);
-    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    opacity: 0; transform: translateY(10px); transition: opacity .35s ease, transform .35s ease; }
-  .card.show { opacity: 1; transform: none; }
+  /* 卡片：左标签 + 中间游戏名 + 右时间，一条横向条，带淡入淡出 */
+  .card { display: inline-flex; align-items: stretch; gap: 0; height: var(--h);
+    box-shadow: 0 10px 30px rgba(0,0,0,.45);
+    opacity: 0; transform: translateY(12px); pointer-events: none;
+    transition: opacity .45s ease, transform .45s ease; }
+  .card.show { opacity: 1; transform: none; pointer-events: auto; }
 
-  body.light .card { background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(236,240,246,.96));
-    border: 1px solid rgba(0,0,0,.06); box-shadow: 0 14px 38px rgba(0,0,0,.22); }
-  body.light .title, body.light .time .v { color: #111; }
-  body.light .sub { color: #64748b; }
+  /* 左侧：当前游戏 标签 */
+  .tag { display: flex; align-items: center; padding: 0 22px; font-size: calc(var(--fs) + 1px);
+    font-weight: 800; letter-spacing: .04em; color: #1a1a1a;
+    background: linear-gradient(180deg, #f0f0f0, #d9d9d9); white-space: nowrap; }
 
-  .thumb { position: relative; width: 88px; height: 56px; border-radius: 10px; overflow: hidden;
-    flex: none; background: #141a26 center/cover no-repeat; border: 1px solid rgba(255,255,255,.06); }
-  body.light .thumb { background: #e2e8f0; border: 1px solid rgba(0,0,0,.05); }
-  .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
-  .thumb .fb { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    color: var(--accent); font-size: 22px; font-weight: 800; z-index: 0; }
+  /* 中间：游戏名 */
+  .mid { display: flex; align-items: center; gap: 12px; padding: 0 24px; min-width: 0;
+    background: linear-gradient(180deg, #161616, #050505); }
+  .thumb { width: calc(var(--fs) * 2.4); height: calc(var(--fs) * 1.5); flex: none;
+    border-radius: 5px; overflow: hidden; background: #000 center/cover no-repeat;
+    display: none; }
+  .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
   .thumb.hidden { display: none; }
-
-  .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-  .badge { font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
-  .title { font-size: var(--fs); font-weight: 800; color: #fff; line-height: 1.15;
+  .mid.thumb-show .thumb { display: block; }
+  #name { font-size: var(--fs); font-weight: 800; color: #fff; line-height: 1.2;
     max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sub { font-size: 11px; color: #8290a5; }
-  .time { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; padding-left: 14px; }
-  .time .k { font-size: 10px; font-weight: 800; letter-spacing: .16em; color: var(--accent); }
-  .time .v { font-size: calc(var(--fs) + 4px); font-weight: 800; color: #fff;
-    font-variant-numeric: tabular-nums; line-height: 1; }
+
+  /* 右侧：TIME 时长 */
+  .time { display: flex; align-items: center; gap: 10px; padding: 0 24px;
+    background: linear-gradient(180deg, #101a2b, #07101c); }
+  .time .k { font-size: calc(var(--fs) - 4px); font-weight: 800; letter-spacing: .18em;
+    color: #4aa3ff; text-transform: uppercase; }
+  .time .v { font-size: calc(var(--fs) + 1px); font-weight: 800; color: #fff;
+    font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* 浅色主题 */
+  body.light .tag { color: #111; background: linear-gradient(180deg,#fff,#e6e6e6); }
+  body.light .mid { background: linear-gradient(180deg,#2a2a2a,#111); }
+  body.light .time { background: linear-gradient(180deg,#eaf2ff,#dbe7fb); }
+  body.light .time .k { color: #1e6fd9; }
+  body.light #name { color: #fff; }
+  body.light .time .v { color: #111; }
+
   .hidden { display: none !important; }
 </style>
 </head>
 <body>
   <div class="card" id="card">
-    <div class="thumb" id="thumb"><img id="cover" alt=""><span class="fb" id="fb">游</span></div>
-    <div class="body">
-      <div class="badge" id="badge">正在游玩</div>
-      <div class="title" id="name">—</div>
-      <div class="sub hidden" id="appid">AppID —</div>
+    <div class="tag" id="tag">当前游戏</div>
+    <div class="mid" id="mid">
+      <div class="thumb hidden" id="thumb"><img id="cover" alt=""></div>
+      <span id="name">—</span>
     </div>
     <div class="time" id="timeCol"><span class="k">TIME</span><span class="v" id="session">00:00</span></div>
   </div>
@@ -62,8 +72,8 @@
   const posOverride = qs.get("pos");
   const demoStart = Date.now();
   const card = document.getElementById("card");
-  const DEFAULTS = { pos:"bl", theme:"dark", accent:"#66c0f4", fontSize:20, height:76,
-    showCover:true, showAppid:true, showPlatform:true, showTime:true };
+  const DEFAULTS = { pos:"bl", theme:"dark", accent:"#66c0f4", fontSize:20, height:64,
+    showCover:false, showPlatform:true, showTime:true };
   let cfg = DEFAULTS;
 
   function applyCfg(c) {
@@ -72,11 +82,10 @@
     document.body.className = (cfg.theme === "light" ? "light " : "") + "pos-" + pos;
     document.documentElement.style.setProperty("--accent", cfg.accent || "#66c0f4");
     document.documentElement.style.setProperty("--fs", (cfg.fontSize || 20) + "px");
-    card.style.minHeight = (cfg.height || 76) + "px";
+    document.documentElement.style.setProperty("--h", (cfg.height || 64) + "px");
     document.getElementById("thumb").classList.toggle("hidden", !cfg.showCover);
-    document.getElementById("appid").classList.toggle("hidden", !cfg.showAppid);
     document.getElementById("timeCol").classList.toggle("hidden", !cfg.showTime);
-    document.getElementById("badge").classList.toggle("hidden", !cfg.showPlatform);
+    document.getElementById("tag").classList.toggle("hidden", !cfg.showPlatform);
   }
 
   function fmt(s) {
@@ -87,17 +96,13 @@
 
   function render(d) {
     if (!d.running) { card.classList.remove("show"); return; }
-    const name = d.name || "游戏中";
-    document.getElementById("name").textContent = name;
-    document.getElementById("appid").textContent = d.appid ? ("AppID " + d.appid) : (d.platformLabel || "");
+    document.getElementById("name").textContent = d.name || "游戏中";
     document.getElementById("session").textContent = fmt(d.sessionSeconds || 0);
-    document.getElementById("badge").textContent = (d.platformLabel || "游戏") + " · 正在游玩";
-    const fb = document.getElementById("fb");
-    fb.textContent = (name || "游").trim().charAt(0);
     const cover = document.getElementById("cover");
     if (d.cover) { cover.src = d.cover; cover.style.display = "block";
-      cover.onerror = () => { cover.style.display = "none"; }; }
-    else { cover.style.display = "none"; }
+      cover.onerror = () => { cover.style.display = "none"; cover.src=""; }; }
+    else { cover.style.display = "none"; cover.src=""; }
+    document.getElementById("mid").classList.toggle("thumb-show", !!cfg.showCover && !!cover.src);
     card.classList.add("show");
   }
 
