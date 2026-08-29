@@ -1,0 +1,90 @@
+name: package-installer
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout backend
+        uses: actions/checkout@v4
+
+      - name: Build backend jar
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+      - run: mvn -B -DskipTests clean package
+      - name: Stage backend
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "dist\Now Playing" | Out-Null
+          Copy-Item target\now-playing-0.0.1-SNAPSHOT.jar "dist\Now Playing\now-playing-0.0.1-SNAPSHOT.jar"
+          New-Item -ItemType Directory -Force "dist\Now Playing\jre" | Out-Null
+          Copy-Item "$env:JAVA_HOME\*" "dist\Now Playing\jre" -Recurse -Force
+          Copy-Item Assets "dist\Now Playing\Assets" -Recurse -Force
+          Copy-Item Plugins "dist\Now Playing\Plugins" -Recurse -Force
+
+      - name: Build backend launcher (NowPlayingService.exe)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+        shell: pwsh
+        run: |
+          cd tools\launcher
+          go build -ldflags "-H windowsgui" -o "..\..\dist\Now Playing\NowPlayingService.exe" .
+
+      - name: Checkout frontend
+        uses: actions/checkout@v4
+        with:
+          repository: zhuyouyi/now-playing-frontend
+          path: fe
+
+      - name: Build shell (Now Playing.exe)
+        working-directory: fe
+        run: |
+          npm install
+          npm run tauri build
+      - name: Copy shell exe
+        shell: pwsh
+        run: |
+          Copy-Item "fe\src-tauri\target\release\now-playing.exe" "dist\Now Playing\Now Playing.exe"
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Write installer script
+        shell: pwsh
+        run: |
+          @'
+          [Setup]
+          AppName=Now Playing
+          AppVersion=2.1.5-game
+          DefaultDirName={autopf}\Now Playing
+          DefaultGroupName=Now Playing
+          OutputDir=Output
+          OutputBaseFilename=NowPlaying-game-setup
+          Compression=lzma2
+          SolidCompression=yes
+
+          [Files]
+          Source: "dist\Now Playing\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
+
+          [Icons]
+          Name: "{group}\Now Playing"; Filename: "{app}\Now Playing.exe"
+          Name: "{autodesktop}\Now Playing"; Filename: "{app}\Now Playing.exe"
+
+          [Run]
+          Filename: "{app}\Now Playing.exe"; Flags: nowait postinstall skipifsilent
+          '@ | Set-Content installer.iss -Encoding UTF8
+
+      - name: Compile setup.exe
+        run: ISCC.exe installer.iss
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: now-playing-setup-game
+          path: Output\*.exe
+          if-no-files-found: error
