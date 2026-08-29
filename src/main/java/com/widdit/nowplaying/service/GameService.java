@@ -5,12 +5,9 @@ import com.alibaba.fastjson.JSONObject;
 import com.widdit.nowplaying.entity.Game;
 import com.widdit.nowplaying.entity.GameProcess;
 import com.widdit.nowplaying.entity.GameSettings;
-import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.Tlhelp32;
 import com.sun.jna.platform.win32.WinNT.HANDLE;
-import com.sun.jna.platform.win32.WinDef.HWND;
-import com.sun.jna.ptr.IntByReference;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -68,7 +65,16 @@ public class GameService {
         try {
             long now = System.currentTimeMillis();
 
-            // 1) Steam 注册表（最可靠）
+            // 1) 枚举系统里所有正在运行的进程（Oopz/Kook/Discord 同款机制，不依赖前台窗口）
+            List<RunningProc> procs = enumerateProcesses();
+            if (procs.isEmpty()) {
+                prevKey = "";
+                startedAt = 0L;
+                setGame(new Game(), "none");
+                return;
+            }
+
+            // 2) Steam 注册表快速识别（最可靠）
             int appid = readSteamAppId();
             if (appid != 0) {
                 String key = "steam:" + appid;
@@ -76,34 +82,32 @@ public class GameService {
                 setGame(buildGame(true, "steam", "Steam",
                         resolveSteamName(appid), appid,
                         String.format(HEADER_CDN, appid),
-                        sessionSeconds(key, now), null, "registry"),
-                        key);
+                        sessionSeconds(key, now), readPlaytime(appid), "registry"), key);
                 return;
             }
 
-            // 前台窗口进程识别（借鉴 Kook/Oopz）：当前置顶窗口是游戏进程即认为是正在玩
-            String fgProc = foregroundProcessName();
-            if (!fgProc.isEmpty() && !isSystemProcess(fgProc)) {
-                GameProcess gp = settings.getCustomGames().get(fgProc);
-                String name = (gp != null && gp.getName() != null) ? gp.getName() : fgProc;
-                String platform = (gp != null && gp.getPlatform() != null) ? gp.getPlatform() : "custom";
+            // 3) 用户自定义进程映射（精确匹配进程名）
+            GameProcess custom = detectCustomGame(procs);
+            if (custom != null) {
+                String platform = custom.getPlatform() == null ? "custom" : custom.getPlatform();
+                String key = "proc:" + platform.toLowerCase() + ":" + custom.getName();
                 String label = platformLabel(platform);
-                String key = "fg:" + fgProc;
-                log.info("前台进程识别到游戏 {} ({})", name, label);
-                setGame(buildGame(true, platform, label, name, null, null,
-                        sessionSeconds(key, now), null, "foreground"), key);
+                log.info("检测到进程游戏 {} ({})", custom.getName(), label);
+                setGame(withProc(buildGame(true, platform, label, custom.getName(), null, null,
+                        sessionSeconds(key, now), null, "custom"), custom.getName()), key);
                 return;
             }
 
-            // 2) 其它平台：进程检测
-            GameProcess hit = detectProcess();
-            if (hit != null) {
-                String platform = hit.getPlatform() == null ? "custom" : hit.getPlatform();
-                String key = "proc:" + platform.toLowerCase() + ":" + hit.getName();
+            // 4) 自动进程映射：从剩余进程里挑出“看起来像在玩的游戏”的进程
+            RunningProc auto = autoDetectGame(procs);
+            if (auto != null) {
+                String name = auto.displayName;
+                String platform = guessPlatform(auto.exe);
+                String key = "auto:" + auto.exe;
                 String label = platformLabel(platform);
-                log.info("检测到进程游戏 {} ({})", hit.getName(), label);
-                setGame(buildGame(true, platform, label, hit.getName(), null, null,
-                        sessionSeconds(key, now), null, "process"), key);
+                log.info("自动识别到游戏进程 {} -> {} ({})", auto.exe, name, label);
+                setGame(withProc(buildGame(true, platform, label, name, null, null,
+                        sessionSeconds(key, now), null, "auto"), auto.exe), key);
                 return;
             }
 
@@ -137,10 +141,6 @@ public class GameService {
         saveGameSettings(s);
     }
 
-    public List<String> runningProcesses() {
-        return detectRunningProcesses();
-    }
-
     // ---------- 构建 ----------
 
     private Game buildGame(boolean running, String platform, String label, String name,
@@ -165,6 +165,12 @@ public class GameService {
         this.game = g;
     }
 
+    private Game withProc(Game g, String procName) {
+        g.setProcessName(procName);
+        g.setDetectedName(g.getName());
+        return g;
+    }
+
     private long sessionSeconds(String key, long now) {
         if (!key.equals(prevKey)) {
             prevKey = key;
@@ -179,6 +185,7 @@ public class GameService {
             case "epic": return "Epic";
             case "gog": return "GOG";
             case "ubisoft": return "Ubisoft";
+            case "mihoyo": return "米哈游";
             default: return "其它平台";
         }
     }
@@ -320,69 +327,145 @@ public class GameService {
         return null;
     }
 
-    // ---------- 进程检测 ----------
+    // ---------- 进程检测（监听系统全部进程，不依赖前台窗口）----------
 
-    private List<String> detectRunningProcesses() {
-        String out = runCommand("tasklist", "/FO", "CSV", "/NH");
-        Set<String> names = new HashSet<>();
-        for (String line : out.split("\r?\n")) {
-            line = line.trim();
-            if (line.isEmpty()) {
-                continue;
-            }
-            line = line.startsWith("\"") ? line.substring(1) : line;
-            String name = line.split("\"", 2)[0].trim().toLowerCase();
-            if (name.endsWith(".exe")) {
-                name = name.substring(0, name.length() - 4);
-            }
-            if (!name.isEmpty()) {
-                names.add(name);
-            }
+    /** 运行中的进程：exe 为小写进程名（不含 .exe），displayName 为自动推断的显示名。 */
+    static class RunningProc {
+        final String exe;
+        final String displayName;
+
+        RunningProc(String exe, String displayName) {
+            this.exe = exe;
+            this.displayName = displayName;
         }
-        List<String> list = new ArrayList<>(names);
-        Collections.sort(list);
-        return list;
     }
 
-    private String foregroundProcessName() {
+    /** 枚举系统所有正在运行的进程的可执行文件名（Windows 标准 API，能拿到其它进程）。 */
+    private List<RunningProc> enumerateProcesses() {
+        List<RunningProc> result = new ArrayList<>();
+        HANDLE snap = null;
         try {
-            HWND fg = User32.INSTANCE.GetForegroundWindow();
-            if (fg == null) {
-                return "";
-            }
-            IntByReference pidRef = new IntByReference();
-            User32.INSTANCE.GetWindowThreadProcessId(fg, pidRef);
-            int pid = pidRef.getValue();
-            if (pid <= 0) {
-                return "";
-            }
-            // 用 TLHELP32 枚举进程，按 PID 取进程可执行文件名（Windows 标准做法，拿得到其它进程）
-            HANDLE snap = Kernel32.INSTANCE.CreateToolhelp32Snapshot(Tlhelp32.TH32CS_SNAPPROCESS, 0);
+            snap = Kernel32.INSTANCE.CreateToolhelp32Snapshot(Tlhelp32.TH32CS_SNAPPROCESS, 0);
             if (snap == null || snap.equals(Kernel32.INVALID_HANDLE_VALUE)) {
-                return "";
+                return result;
             }
-            try {
-                Tlhelp32.PROCESSENTRY32.ByReference pe = new Tlhelp32.PROCESSENTRY32.ByReference();
-                pe.dwSize = new com.sun.jna.platform.win32.WinDef.DWORD(pe.size());
-                boolean ok = Kernel32.INSTANCE.Process32First(snap, pe);
-                while (ok) {
-                    if (pe.th32ProcessID.intValue() == pid) {
-                        return new String(pe.szExeFile).trim().toLowerCase().replace(".exe", "");
-                    }
-                    ok = Kernel32.INSTANCE.Process32Next(snap, pe);
+            Tlhelp32.PROCESSENTRY32.ByReference pe = new Tlhelp32.PROCESSENTRY32.ByReference();
+            // JNA 的 DWORD 构造器只接受 long(int 不能直接转 DWORD)
+            pe.dwSize = new com.sun.jna.platform.win32.WinDef.DWORD((long) pe.size());
+            boolean ok = Kernel32.INSTANCE.Process32First(snap, pe);
+            while (ok) {
+                String exe = new String(pe.szExeFile).trim();
+                if (!exe.isEmpty()) {
+                    String name = exe.toLowerCase().replaceAll("\\.exe$", "");
+                    result.add(new RunningProc(name, prettify(name)));
                 }
-            } finally {
-                Kernel32.INSTANCE.CloseHandle(snap);
+                ok = Kernel32.INSTANCE.Process32Next(snap, pe);
             }
-            return "";
         } catch (Exception e) {
-            log.warn("读取前台进程失败: {}", e.getMessage());
-            return "";
+            log.warn("枚举进程失败: {}", e.getMessage());
+        } finally {
+            if (snap != null && !snap.equals(Kernel32.INVALID_HANDLE_VALUE)) {
+                try {
+                    Kernel32.INSTANCE.CloseHandle(snap);
+                } catch (Exception ignored) {
+                }
+            }
         }
+        return result;
+    }
+
+    /** 用户自定义进程映射：进程名精确匹配。 */
+    private GameProcess detectCustomGame(List<RunningProc> procs) {
+        if (settings.getCustomGames() == null) {
+            return null;
+        }
+        for (RunningProc p : procs) {
+            GameProcess gp = settings.getCustomGames().get(p.exe);
+            if (gp != null) {
+                return gp;
+            }
+        }
+        return null;
+    }
+
+    /** 自动识别：从剩余进程里挑一个“最像在玩”的游戏进程。 */
+    private RunningProc autoDetectGame(List<RunningProc> procs) {
+        // 第一优先级：命中已知游戏特征/平台启动器路径关键字的进程
+        for (RunningProc p : procs) {
+            if (isSystemProcess(p.exe)) {
+                continue;
+            }
+            if (isKnownGameExecutable(p.exe)) {
+                return p;
+            }
+        }
+        // 第二优先级：任何非系统、非常见后台的可执行进程都认为是候选游戏
+        for (RunningProc p : procs) {
+            if (!isSystemProcess(p.exe) && !isBackgroundTool(p.exe)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /** 是否命中已知游戏可执行文件特征（来自 Oopz/Kook/Discord 常用游戏名）。 */
+    private boolean isKnownGameExecutable(String exe) {
+        return KNOWN_GAME_EXES.contains(exe);
     }
 
     private boolean isSystemProcess(String name) {
         return SYSTEM_PROCESSES.contains(name);
+    }
+
+    private boolean isBackgroundTool(String name) {
+        return BACKGROUND_TOOLS.contains(name);
+    }
+
+    /** 从进程名生成一个更可读的显示名（去掉常见后缀，替换分隔符）。 */
+    private static String prettify(String raw) {
+        String s = raw;
+        s = s.replaceAll("(?i)(-?win64-shipping|-win64|-win32|-x64|-client|-game|_x64|-shipping|-launcher|-webhelper|-helper|-service)$", "");
+        s = s.replaceAll("[_\\-]+", " ");
+        s = s.trim();
+        if (s.isEmpty()) {
+            return raw;
+        }
+        // 首字母大写的英文/拼音词
+        StringBuilder sb = new StringBuilder();
+        for (String w : s.split("\\s+")) {
+            if (w.isEmpty()) {
+                continue;
+            }
+            if (w.length() > 0) {
+                sb.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1)).append(' ');
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    /** 根据进程可执行名粗略判断平台。 */
+    private String guessPlatform(String exe) {
+        if (exe.contains("valorant") || exe.contains("league") || exe.contains("riot")
+                || exe.contains("r5apex") || exe.contains("fortnite")) {
+            return "epic";
+        }
+        if (exe.contains("ac") || exe.contains("farcry") || exe.contains("division")
+                || exe.contains("rainbowsix")) {
+            return "ubisoft";
+        }
+        if (exe.contains("witcher") || exe.contains("cyberpunk") || exe.contains("gwent")) {
+            return "gog";
+        }
+        if (exe.contains("genshin") || exe.contains("yuanshen") || exe.contains("starrail")
+                || exe.contains("zenless") || exe.contains("hkrpg")) {
+            return "mihoyo";
+        }
+        if (exe.contains("cs2") || exe.contains("csgo") || exe.contains("dota2")
+                || exe.contains("eldenring") || exe.contains("gta5") || exe.contains("rdr2")
+                || exe.contains("forzahorizon")) {
+            return "steam";
+        }
+        return "custom";
     }
 
     private static final Set<String> SYSTEM_PROCESSES = new HashSet<>(Arrays.asList(
@@ -390,20 +473,48 @@ public class GameService {
             "lsass", "smss", "fontdrvhost", "dllhost", "taskhostw", "runtimebroker", "sihost",
             "conhost", "audiodg", "spoolsv", "searchindexer", "ctfmon", "registry",
             "memorycompression", "shellexperiencehost", "startmenuexperiencehost", "textinputhost",
-            "now-playing", "nowplayingservice", "msedgewebview2", "msedge", "chrome", "firefox",
-            "opera", "brave", "steam", "steamwebhelper", "wechat", "weixin", "qq", "qqnt",
-            "obs64", "obs", "explorer", "taskmgr", "devenv", "code", "manychat", "discord"
+            "now-playing", "nowplayingservice", "nowplaying", "openjdk", "java", "javaw",
+            "msedgewebview2", "msedge", "chrome", "firefox", "opera", "brave",
+            "steam", "steamwebhelper", "steamservice", "wechat", "weixin", "qq", "qqnt", "tim",
+            "obs64", "obs", "taskmgr", "devenv", "code", "manychat", "discord",
+            "bar", "notepad", "winword", "excel", "powerpnt", "outlook", "dwm", "audiodg"
     ));
 
-    private GameProcess detectProcess() {
-        Set<String> procs = new HashSet<>(detectRunningProcesses());
-        for (Map.Entry<String, GameProcess> e : settings.getCustomGames().entrySet()) {
-            String key = e.getKey().toLowerCase().replaceAll("\\.exe$", "");
-            if (procs.contains(key)) {
-                return e.getValue();
+    /** 常见后台工具/软件（非游戏），避免误判。 */
+    private static final Set<String> BACKGROUND_TOOLS = new HashSet<>(Arrays.asList(
+            "rustdesk", "sunshine", "gamebar", "gamebartips", "onenote", "paint",
+            "cmd", "powershell", "wmplayer", "mpc-hc", "potplayermini64", "vlc",
+            "everything", "clash", "v2ray", "nvidiawebhelper", "nvcontainer",
+            "steamwebhelper", "epicwebhelper", "epicgameslauncher", "gamelauncher",
+            "battle.net", "battlewebhelper", "wegame", "wegamewebhelper",
+            "goggalaxy", "ubisoftconnect", "uplay", "origin", "anticheat", "easyanticheat",
+            "be", "battleye", "beservice", "vanguard", "vgc", "mihoyo", "hoyoplay"
+    ));
+
+    /** 已知常见游戏进程名（自动识别第一优先级）。 */
+    private static final Set<String> KNOWN_GAME_EXES = new HashSet<>(Arrays.asList(
+            "eldenring", "cyberpunk2077", "witcher3", "acvalhalla", "acodyssey",
+            "farcry5", "division2", "r6", "rainbowsix", "fortniteclient-win64-shipping",
+            "fortniteclient", "r5apex", "borderlands3", "starwarsjedifallenorder",
+            "control", "gta5", "rdr2", "valorant-win64-shipping", "valorant", "overwatch",
+            "overwatch2", "deadbydaylight", "cs2", "csgo", "dota2", "racing",
+            "forzahorizon5", "forzahorizon4", "minecraft", "javaw", "code", "gta_sa",
+            "pes2021", "fifa23", "fifa24", "apex", "warzone", "cod", "mc",
+            "genshinimpact", "yuanshen", "starrail", "hkrpg", "zenlesszonezero",
+            "leagueoflegends", "leagueclient", "leagueclientux", "tft", "valorant-win64-shipping",
+            "hearthstone", "wowclassic", "wow", "wutheringwaves", "phantom", "sm2", "rise"
+    ));
+
+    /** 返回当前运行的进程名列表（供前端配置进程映射时提示）。 */
+    public List<String> runningProcesses() {
+        List<String> list = new ArrayList<>();
+        for (RunningProc p : enumerateProcesses()) {
+            if (!isSystemProcess(p.exe)) {
+                list.add(p.exe);
             }
         }
-        return null;
+        Collections.sort(list);
+        return list;
     }
 
     // ---------- 命令 ----------
@@ -452,31 +563,8 @@ public class GameService {
 
     private static GameSettings defaultSettings() {
         GameSettings s = new GameSettings();
-        Map<String, GameProcess> defaults = new HashMap<>();
-        defaults.put("eldenring", new GameProcess("艾尔登法环", "epic"));
-        defaults.put("cyberpunk2077", new GameProcess("赛博朋克 2077", "epic"));
-        defaults.put("witcher3", new GameProcess("巫师 3", "gog"));
-        defaults.put("acvalhalla", new GameProcess("刺客信条：英灵殿", "ubisoft"));
-        defaults.put("fortniteclient-win64-shipping", new GameProcess("堡垒之夜", "epic"));
-        defaults.put("r5apex", new GameProcess("Apex 英雄", "epic"));
-        defaults.put("borderlands3", new GameProcess("无主之地 3", "epic"));
-        defaults.put("starwarsjedifallenorder", new GameProcess("星球大战 绝地：陨落的武士团", "epic"));
-        defaults.put("control", new GameProcess("控制", "epic"));
-        defaults.put("r6", new GameProcess("彩虹六号：围攻", "ubisoft"));
-        defaults.put("rainbowsix", new GameProcess("彩虹六号：围攻", "ubisoft"));
-        defaults.put("acodyssey", new GameProcess("刺客信条：奥德赛", "ubisoft"));
-        defaults.put("farcry5", new GameProcess("孤岛惊魂 5", "ubisoft"));
-        defaults.put("division2", new GameProcess("全境封锁 2", "ubisoft"));
-        defaults.put("gta5", new GameProcess("侠盗猎车手 5", "custom"));
-        defaults.put("rdr2", new GameProcess("荒野大镖客 2", "custom"));
-        defaults.put("valorant-win64-shipping", new GameProcess("无畏契约", "custom"));
-        defaults.put("overwatch", new GameProcess("守望先锋 2", "custom"));
-        defaults.put("deadbydaylight", new GameProcess("黎明杀机", "custom"));
-        defaults.put("cs2", new GameProcess("反恐精英 2", "custom"));
-        defaults.put("dota2", new GameProcess("Dota 2", "custom"));
-        defaults.put("racing", new GameProcess("极限竞速：地平线 5", "custom"));
-        defaults.put("forzahorizon5", new GameProcess("极限竞速：地平线 5", "custom"));
-        s.setCustomGames(defaults);
+        // 不再内置硬编码游戏映射。识别完全交给：Steam 注册表 + 用户自定义 + 自动进程识别。
+        s.setCustomGames(new HashMap<>());
         return s;
     }
 
