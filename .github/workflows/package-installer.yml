@@ -26,10 +26,12 @@ jobs:
           Copy-Item Assets "dist\Now Playing\Assets" -Recurse -Force
           Copy-Item Plugins "dist\Now Playing\Plugins" -Recurse -Force
 
-      - name: Build backend launcher (NowPlayingService.exe)
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.23'
+
+      - name: Build backend launcher (NowPlayingService.exe)
         shell: pwsh
         run: |
           cd tools\launcher
