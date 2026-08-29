@@ -24,7 +24,7 @@ jobs:
       - name: Build frontend UI (from source)
         working-directory: fe
         run: |
-          pnpm install --no-frozen-lockfile
+          pnpm install --no-frozen-lockfile --shamefully-hoist
 
       - name: Build frontend dist
         working-directory: fe
