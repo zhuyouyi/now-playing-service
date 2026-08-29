@@ -18,4 +18,6 @@ func main() {
 	)
 	cmd.Dir = dir
 	_ = cmd.Start()
+	// 保持为 java 的父进程并常驻，这样客户端退出时 taskkill /T /F 能连带杀掉 java
+	_ = cmd.Wait()
 }
