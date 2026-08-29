@@ -35,4 +35,10 @@ public class Game {
     // 数据来源：registry / process / non-windows / none
     private String source;
 
+    // 诊断信息：当前匹配到的进程名（小写，不含 .exe），便于排查“为何没识别到”
+    private String processName;
+
+    // 诊断信息：当前匹配到的进程显示名
+    private String detectedName;
+
 }
