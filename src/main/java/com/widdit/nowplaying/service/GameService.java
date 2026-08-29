@@ -346,12 +346,13 @@ public class GameService {
             if (fg == null) {
                 return "";
             }
-            int[] pid = new int[1];
-            User32.INSTANCE.GetWindowThreadProcessId(fg, pid);
-            if (pid[0] <= 0) {
+            com.sun.jna.ptr.IntByReference pidRef = new com.sun.jna.ptr.IntByReference();
+            User32.INSTANCE.GetWindowThreadProcessId(fg, pidRef);
+            int pid = pidRef.getValue();
+            if (pid <= 0) {
                 return "";
             }
-            return ProcessHandle.of(pid[0])
+            return ProcessHandle.of(pid)
                     .map(h -> h.info().command().orElse(""))
                     .map(p -> new java.io.File(p).getName())
                     .map(n -> n.toLowerCase().replace(".exe", ""))
