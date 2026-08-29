@@ -10,12 +10,34 @@ jobs:
       - name: Checkout backend
         uses: actions/checkout@v4
 
+      - name: Checkout frontend
+        uses: actions/checkout@v4
+        with:
+          repository: zhuyouyi/now-playing-frontend
+          path: fe
+
+      - name: Build frontend UI (from source)
+        working-directory: fe
+        run: npm install
+
+      - name: Build frontend dist
+        working-directory: fe
+        run: npm run build
+
+      - name: Copy built UI into backend static
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "src\main\resources\static\vite-assets" | Out-Null
+          Copy-Item "fe\dist\vite-assets\*" "src\main\resources\static\vite-assets" -Recurse -Force
+          Copy-Item "fe\dist\index.html" "src\main\resources\templates\index.html" -Force
+
       - name: Build backend jar
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '11'
       - run: mvn -B -DskipTests clean package
+
       - name: Stage backend
         shell: pwsh
         run: |
@@ -37,17 +59,6 @@ jobs:
           cd tools\launcher
           go build -ldflags "-H windowsgui" -o "..\..\dist\Now Playing\NowPlayingService.exe" .
 
-      - name: Checkout frontend
-        uses: actions/checkout@v4
-        with:
-          repository: zhuyouyi/now-playing-frontend
-          path: fe
-
-      - name: Setup Node (for Tauri frontend)
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
       - name: Install Rust (for Tauri shell)
         uses: dtolnay/rust-toolchain@stable
 
@@ -56,6 +67,7 @@ jobs:
         run: |
           npm install
           npm run tauri build
+
       - name: Copy shell exe
         shell: pwsh
         run: |
