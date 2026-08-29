@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>正在游玩 · 游戏组件</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+    display: flex; padding: 18px; }
+  body { justify-content: flex-start; align-items: flex-end; }
+  body.pos-tr { justify-content: flex-end; align-items: flex-start; }
+  body.pos-br { justify-content: flex-end; align-items: flex-end; }
+  body.pos-tl { justify-content: flex-start; align-items: flex-start; }
+
+  .card { display: flex; align-items: center; gap: 14px; padding: 10px 18px 10px 10px;
+    border-radius: 16px; background: linear-gradient(135deg, rgba(23,32,46,.94), rgba(7,10,16,.94));
+    border: 1px solid rgba(255,255,255,.10); box-shadow: 0 14px 38px rgba(0,0,0,.55);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    opacity: 0; transform: translateY(10px); transition: opacity .35s ease, transform .35s ease; }
+  .card.show { opacity: 1; transform: none; }
+
+  body.light .card { background: linear-gradient(135deg, rgba(255,255,255,.96), rgba(236,240,246,.96));
+    border: 1px solid rgba(0,0,0,.06); box-shadow: 0 14px 38px rgba(0,0,0,.22); }
+  body.light .title, body.light .time .v { color: #111; }
+  body.light .sub { color: #64748b; }
+
+  .thumb { position: relative; width: 88px; height: 56px; border-radius: 10px; overflow: hidden;
+    flex: none; background: #141a26 center/cover no-repeat; border: 1px solid rgba(255,255,255,.06); }
+  body.light .thumb { background: #e2e8f0; border: 1px solid rgba(0,0,0,.05); }
+  .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+  .thumb .fb { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--accent); font-size: 22px; font-weight: 800; z-index: 0; }
+  .thumb.hidden { display: none; }
+
+  .body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .badge { font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+  .title { font-size: var(--fs); font-weight: 800; color: #fff; line-height: 1.15;
+    max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub { font-size: 11px; color: #8290a5; }
+  .time { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; padding-left: 14px; }
+  .time .k { font-size: 10px; font-weight: 800; letter-spacing: .16em; color: var(--accent); }
+  .time .v { font-size: calc(var(--fs) + 4px); font-weight: 800; color: #fff;
+    font-variant-numeric: tabular-nums; line-height: 1; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="thumb" id="thumb"><img id="cover" alt=""><span class="fb" id="fb">游</span></div>
+    <div class="body">
+      <div class="badge" id="badge">正在游玩</div>
+      <div class="title" id="name">—</div>
+      <div class="sub hidden" id="appid">AppID —</div>
+    </div>
+    <div class="time" id="timeCol"><span class="k">TIME</span><span class="v" id="session">00:00</span></div>
+  </div>
+
+<script>
+  const qs = new URLSearchParams(location.search);
+  const DEMO = qs.get("demo") === "1";
+  const posOverride = qs.get("pos");
+  const demoStart = Date.now();
+  const card = document.getElementById("card");
+  const DEFAULTS = { pos:"bl", theme:"dark", accent:"#66c0f4", fontSize:20, height:76,
+    showCover:true, showAppid:true, showPlatform:true, showTime:true };
+  let cfg = DEFAULTS;
+
+  function applyCfg(c) {
+    cfg = Object.assign({}, DEFAULTS, c || {});
+    const pos = posOverride || cfg.pos || "bl";
+    document.body.className = (cfg.theme === "light" ? "light " : "") + "pos-" + pos;
+    document.documentElement.style.setProperty("--accent", cfg.accent || "#66c0f4");
+    document.documentElement.style.setProperty("--fs", (cfg.fontSize || 20) + "px");
+    card.style.minHeight = (cfg.height || 76) + "px";
+    document.getElementById("thumb").classList.toggle("hidden", !cfg.showCover);
+    document.getElementById("appid").classList.toggle("hidden", !cfg.showAppid);
+    document.getElementById("timeCol").classList.toggle("hidden", !cfg.showTime);
+    document.getElementById("badge").classList.toggle("hidden", !cfg.showPlatform);
+  }
+
+  function fmt(s) {
+    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+    const p = n => String(n).padStart(2, "0");
+    return h > 0 ? `${p(h)}:${p(m)}:${p(sec)}` : `${p(m)}:${p(sec)}`;
+  }
+
+  function render(d) {
+    if (!d.running) { card.classList.remove("show"); return; }
+    const name = d.name || "游戏中";
+    document.getElementById("name").textContent = name;
+    document.getElementById("appid").textContent = d.appid ? ("AppID " + d.appid) : (d.platformLabel || "");
+    document.getElementById("session").textContent = fmt(d.sessionSeconds || 0);
+    document.getElementById("badge").textContent = (d.platformLabel || "游戏") + " · 正在游玩";
+    const fb = document.getElementById("fb");
+    fb.textContent = (name || "游").trim().charAt(0);
+    const cover = document.getElementById("cover");
+    if (d.cover) { cover.src = d.cover; cover.style.display = "block";
+      cover.onerror = () => { cover.style.display = "none"; }; }
+    else { cover.style.display = "none"; }
+    card.classList.add("show");
+  }
+
+  async function getJSON(path) { return (await fetch(path, { cache: "no-store" })).json(); }
+  function applyDemo() {
+    applyCfg(DEFAULTS);
+    render({ running:true, name:"共鸣：瘟疫传说传承", appid:1086940, platformLabel:"Steam",
+      cover:"https://cdn.cloudflare.steamstatic.com/steam/apps/1086940/header.jpg",
+      sessionSeconds: Math.floor((Date.now()-demoStart)/1000) });
+  }
+
+  async function tick() {
+    if (DEMO) { applyDemo(); return; }
+    try {
+      const [cfgData, st] = await Promise.all([getJSON("/api/game/settings"), getJSON("/api/query/game")]);
+      applyCfg(cfgData); render(st);
+    } catch (e) { card.classList.remove("show"); }
+  }
+  tick();
+  setInterval(tick, 1500);
+</script>
+</body>
+</html>

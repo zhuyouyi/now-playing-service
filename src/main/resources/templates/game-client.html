@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>正在游玩 · 游戏组件客户端</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+    background: #0f1218; color: #e5e9f0; padding: 28px; min-height: 100vh; }
+  h1 { font-size: 22px; font-weight: 800; }
+  .sub { color: #8290a5; font-size: 13px; margin-top: 6px; line-height: 1.6; }
+  .card { background: #171c26; border: 1px solid #242c3a; border-radius: 14px; padding: 20px; margin-top: 18px; }
+  .card h2 { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #cfe3ff; }
+  .status { display: flex; align-items: center; gap: 16px; }
+  .status .dot { width: 12px; height: 12px; border-radius: 50%; background: #f00; }
+  .status.on .dot { background: #4ade80; box-shadow: 0 0 10px #4ade80; }
+  .status .info { flex: 1; }
+  .status .name { font-size: 20px; font-weight: 800; }
+  .status .meta { color: #8290a5; font-size: 13px; margin-top: 3px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 22px; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 12px; color: #94a3b8; }
+  select, input[type=text], input[type=number], input[type=color] { background: #0f1420; color: #e5e9f0;
+    border: 1px solid #2a3346; border-radius: 8px; padding: 8px 10px; font-size: 14px; width: 100%; }
+  input[type=color] { padding: 2px; height: 40px; }
+  .switches { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 6px; }
+  .switches label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #cbd5e1; }
+  .row { display: grid; grid-template-columns: 1fr 1fr 130px 40px; gap: 8px; margin-top: 8px; align-items: center; }
+  .row .del { background: #7f1d1d; color: #fff; border: none; border-radius: 8px; height: 38px; cursor: pointer; }
+  button.primary { background: #2563eb; color: #fff; border: none; border-radius: 10px; padding: 10px 22px;
+    font-size: 14px; font-weight: 700; cursor: pointer; }
+  button.ghost { background: transparent; color: #cbd5e1; border: 1px solid #2a3346; border-radius: 10px;
+    padding: 10px 16px; font-size: 13px; cursor: pointer; }
+  button.ghost:hover, button.primary:hover { opacity: .9; }
+  .actions { display: flex; gap: 12px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+  .note { color: #64748b; font-size: 12px; margin-top: 14px; line-height: 1.7; }
+  .tip { color: #7cc0ff; font-size: 12px; margin-top: 8px; }
+  .hint { color: #8290a5; font-size: 12px; margin-top: 4px; line-height: 1.5; }
+  #previewWrap { margin-top: 20px; border: 1px dashed #2a3346; border-radius: 12px; overflow: hidden; display: none; }
+  #previewWrap iframe { width: 100%; height: 140px; border: none; background: transparent; }
+  .tag { display: inline-block; font-size: 11px; background: #1f2937; color: #94a3b8; border-radius: 999px;
+    padding: 3px 10px; margin-top: 6px; }
+</style>
+</head>
+<body>
+  <h1>正在游玩 · 游戏组件</h1>
+  <div class="sub">基于 now-playing 的「正在玩什么游戏」OBS 组件。Steam 用注册表检测，其它平台用进程检测。</div>
+
+  <div class="card">
+    <h2>当前状态</h2>
+    <div class="status" id="status">
+      <div class="dot"></div>
+      <div class="info"><div class="name" id="stName">未在游玩</div><div class="meta" id="stMeta">—</div></div>
+      <div class="meta" id="stTime">00:00</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>自定义美化</h2>
+    <div class="grid">
+      <div class="field"><label>位置</label>
+        <select id="cfgPos"><option value="bl">左下</option><option value="br">右下</option><option value="tl">左上</option><option value="tr">右上</option></select></div>
+      <div class="field"><label>主题</label>
+        <select id="cfgTheme"><option value="dark">深色</option><option value="light">浅色</option></select></div>
+      <div class="field"><label>强调色</label><input type="color" id="cfgAccent" value="#66c0f4"></div>
+      <div class="field"><label>字号 (px)</label><input type="number" id="cfgFontSize" min="12" max="40" value="20"></div>
+      <div class="field"><label>卡片高度 (px)</label><input type="number" id="cfgHeight" min="48" max="160" value="76"></div>
+    </div>
+    <div class="switches">
+      <label><input type="checkbox" id="cfgCover" checked> 封面</label>
+      <label><input type="checkbox" id="cfgAppid" checked> AppID</label>
+      <label><input type="checkbox" id="cfgPlatform" checked> 平台标识</label>
+      <label><input type="checkbox" id="cfgTime" checked> 时长</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>平台/进程映射（Steam 之外的游戏）</h2>
+    <div class="hint">Steam 无需配置（自动用注册表）。其它平台填写该游戏的 <b>进程名</b>（可省略 .exe，不区分大小写）、<b>显示名</b>、<b>平台</b>。输入框会提示当前运行中的进程。</div>
+    <div id="procRows"></div>
+    <button class="ghost" id="addProc">+ 添加进程映射</button>
+  </div>
+
+  <div class="card">
+    <div class="actions">
+      <button class="primary" id="save">保存设置</button>
+      <button class="ghost" id="togglePreview">预览组件</button>
+      <span class="tag" id="saveMsg"></span>
+    </div>
+    <div id="previewWrap"><iframe id="preview" src="/widget/game?demo=1"></iframe></div>
+    <div class="note">OBS 使用：来源 → 浏览器 → URL 填 <b>http://127.0.0.1:9863/widget/game</b>（端口以你配置为准，宽高如 700x96）。开始玩就显示，退出就消失。保存后在 OBS 刷新该浏览器源即可应用新样式。</div>
+  </div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  async function getJSON(path) { return (await fetch(path)).json(); }
+  async function putJSON(path, body) {
+    const r = await fetch(path, { method:"PUT", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) });
+    return r.json();
+  }
+  function fmt(s) { const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;const p=n=>String(n).padStart(2,"0");
+    return h>0?`${p(h)}:${p(m)}:${p(sec)}`:`${p(m)}:${p(sec)}`; }
+  function esc(s){ return (s||"").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+
+  async function refreshStatus() {
+    try {
+      const d = await getJSON("/api/query/game");
+      $("status").classList.toggle("on", d.running);
+      if (d.running) { $("stName").textContent = d.name;
+        $("stMeta").textContent = (d.platformLabel||"") + (d.appid ? " · AppID "+d.appid : "");
+        $("stTime").textContent = fmt(d.sessionSeconds||0); }
+      else { $("stName").textContent = "未在游玩"; $("stMeta").textContent = "Steam / 其它平台"; $("stTime").textContent = "—"; }
+    } catch (e) {}
+  }
+
+  function renderForm(c) {
+    $("cfgPos").value = c.pos || "bl";
+    $("cfgTheme").value = c.theme || "dark";
+    $("cfgAccent").value = c.accent || "#66c0f4";
+    $("cfgFontSize").value = c.fontSize || 20;
+    $("cfgHeight").value = c.height || 76;
+    $("cfgCover").checked = c.showCover !== false;
+    $("cfgAppid").checked = c.showAppid !== false;
+    $("cfgPlatform").checked = c.showPlatform !== false;
+    $("cfgTime").checked = c.showTime !== false;
+  }
+
+  function addRow(proc, name, platform) {
+    const row = document.createElement("div"); row.className = "row";
+    row.innerHTML = `
+      <input type="text" class="r-proc" placeholder="进程名，如 eldenring" list="procList" value="${esc(proc||"")}">
+      <input type="text" class="r-name" placeholder="显示的游戏名" value="${esc(name||"")}">
+      <select class="r-plat">
+        <option value="custom">其他</option><option value="epic">Epic</option>
+        <option value="gog">GOG</option><option value="ubisoft">Ubisoft</option>
+      </select>
+      <button class="del" title="删除">×</button>`;
+    row.querySelector("select").value = platform || "custom";
+    row.querySelector(".del").onclick = () => row.remove();
+    $("procRows").appendChild(row);
+  }
+
+  function renderProcRows(c) {
+    $("procRows").innerHTML = "";
+    const games = Object.entries(c.customGames || {});
+    if (games.length === 0) $("procRows").innerHTML = '<div class="hint">还没有进程映射。</div>';
+    games.forEach(([proc, v]) => addRow(proc, v.name, v.platform));
+  }
+
+  function collect() {
+    const games = {};
+    document.querySelectorAll("#procRows .row").forEach(row => {
+      const proc = row.querySelector(".r-proc").value.trim().toLowerCase().replace(/\.exe$/,"");
+      const name = row.querySelector(".r-name").value.trim();
+      const plat = row.querySelector(".r-plat").value;
+      if (proc && name) games[proc] = { name, platform: plat };
+    });
+    return { pos:$("cfgPos").value, theme:$("cfgTheme").value, accent:$("cfgAccent").value,
+      fontSize:parseInt($("cfgFontSize").value)||20, height:parseInt($("cfgHeight").value)||76,
+      showCover:$("cfgCover").checked, showAppid:$("cfgAppid").checked,
+      showPlatform:$("cfgPlatform").checked, showTime:$("cfgTime").checked, customGames: games };
+  }
+
+  async function init() {
+    const c = await getJSON("/api/game/settings");
+    renderForm(c); renderProcRows(c); refreshStatus();
+    setInterval(refreshStatus, 1500);
+    const dl = document.createElement("datalist"); dl.id = "procList"; document.body.appendChild(dl);
+    try {
+      const ps = await getJSON("/api/game/processes");
+      ps.forEach(p => { const o = document.createElement("option"); o.value = p; dl.appendChild(o); });
+    } catch (e) {}
+  }
+
+  $("addProc").onclick = () => addRow("", "", "custom");
+  $("save").onclick = async () => {
+    const c = collect();
+    await putJSON("/api/game/settings", c);
+    const m = $("saveMsg"); m.textContent = "已保存，OBS 刷新浏览器源即可见";
+    setTimeout(() => m.textContent = "", 3000);
+  };
+  $("togglePreview").onclick = () => {
+    const w = $("previewWrap");
+    const show = w.style.display === "none" || w.style.display === "";
+    w.style.display = show ? "block" : "none";
+    $("preview").src = "/widget/game?demo=1";
+  };
+
+  init();
+</script>
+</body>
+</html>
