@@ -379,27 +379,13 @@ public class GameService {
 
     /** 自动识别：从剩余进程里挑一个“最像在玩”的游戏进程。 */
     private RunningProc autoDetectGame(List<RunningProc> procs) {
-        // 第一优先级：命中已知游戏特征/平台启动器路径关键字的进程
-        for (RunningProc p : procs) {
-            if (isSystemProcess(p.exe)) {
-                continue;
-            }
-            if (isKnownGameExecutable(p.exe)) {
-                return p;
-            }
-        }
-        // 第二优先级：任何非系统、非常见后台的可执行进程都认为是候选游戏
+        // 不再依赖任何内置游戏库：只要不是系统进程、也不是常见后台工具的可执行进程，就认为是候选游戏。
         for (RunningProc p : procs) {
             if (!isSystemProcess(p.exe) && !isBackgroundTool(p.exe)) {
                 return p;
             }
         }
         return null;
-    }
-
-    /** 是否命中已知游戏可执行文件特征（来自 Oopz/Kook/Discord 常用游戏名）。 */
-    private boolean isKnownGameExecutable(String exe) {
-        return KNOWN_GAME_EXES.contains(exe);
     }
 
     private boolean isSystemProcess(String name) {
@@ -478,20 +464,6 @@ public class GameService {
             "battle.net", "battlewebhelper", "wegame", "wegamewebhelper",
             "goggalaxy", "ubisoftconnect", "uplay", "origin", "anticheat", "easyanticheat",
             "be", "battleye", "beservice", "vanguard", "vgc", "mihoyo", "hoyoplay"
-    ));
-
-    /** 已知常见游戏进程名（自动识别第一优先级）。 */
-    private static final Set<String> KNOWN_GAME_EXES = new HashSet<>(Arrays.asList(
-            "eldenring", "cyberpunk2077", "witcher3", "acvalhalla", "acodyssey",
-            "farcry5", "division2", "r6", "rainbowsix", "fortniteclient-win64-shipping",
-            "fortniteclient", "r5apex", "borderlands3", "starwarsjedifallenorder",
-            "control", "gta5", "rdr2", "valorant-win64-shipping", "valorant", "overwatch",
-            "overwatch2", "deadbydaylight", "cs2", "csgo", "dota2", "racing",
-            "forzahorizon5", "forzahorizon4", "minecraft", "javaw", "code", "gta_sa",
-            "pes2021", "fifa23", "fifa24", "apex", "warzone", "cod", "mc",
-            "genshinimpact", "yuanshen", "starrail", "hkrpg", "zenlesszonezero",
-            "leagueoflegends", "leagueclient", "leagueclientux", "tft", "valorant-win64-shipping",
-            "hearthstone", "wowclassic", "wow", "wutheringwaves", "phantom", "sm2", "rise"
     ));
 
     /** 返回当前运行的进程名列表（供前端配置进程映射时提示）。 */
