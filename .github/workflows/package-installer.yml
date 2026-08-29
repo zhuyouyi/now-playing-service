@@ -18,7 +18,9 @@ jobs:
 
       - name: Build frontend UI (from source)
         working-directory: fe
-        run: npm install
+        run: |
+          npm install --no-audit --no-fund
+          if ( $LASTEXITCODE -ne 0 ) { Start-Sleep -Seconds 4; npm install --no-audit --no-fund }
 
       - name: Build frontend dist
         working-directory: fe
@@ -65,7 +67,6 @@ jobs:
       - name: Build shell (Now Playing.exe)
         working-directory: fe
         run: |
-          npm install
           npm run tauri build
 
       - name: Copy shell exe
