@@ -16,15 +16,19 @@ jobs:
           repository: zhuyouyi/now-playing-frontend
           path: fe
 
+      - name: Install pnpm
+        shell: pwsh
+        run: |
+          npm install -g pnpm@8
+
       - name: Build frontend UI (from source)
         working-directory: fe
         run: |
-          npm install --no-audit --no-fund
-          if ( $LASTEXITCODE -ne 0 ) { Start-Sleep -Seconds 4; npm install --no-audit --no-fund }
+          pnpm install --no-frozen-lockfile
 
       - name: Build frontend dist
         working-directory: fe
-        run: npm run build
+        run: pnpm run build
 
       - name: Copy built UI into backend static
         shell: pwsh
@@ -67,7 +71,7 @@ jobs:
       - name: Build shell (Now Playing.exe)
         working-directory: fe
         run: |
-          npm run tauri build
+          pnpm tauri build
 
       - name: Copy shell exe
         shell: pwsh
