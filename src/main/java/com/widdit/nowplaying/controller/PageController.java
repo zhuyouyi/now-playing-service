@@ -28,7 +28,8 @@ public class PageController {
 
     @GetMapping("/settings/widget")
     public String settingsWidget() {
-        return "settings-widget";
+        // 旧版 settings-widget.html 引用不存在的 /assets 资源，改为返回 React 前端壳（由前端路由渲染歌曲组件页）
+        return "index";
     }
 
     /**
