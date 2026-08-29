@@ -59,34 +59,40 @@ public class GameService {
             return;
         }
 
-        long now = System.currentTimeMillis();
+        try {
+            long now = System.currentTimeMillis();
 
-        // 1) Steam 注册表（最可靠）
-        int appid = readSteamAppId();
-        if (appid != 0) {
-            String key = "steam:" + appid;
-            setGame(buildGame(true, "steam", "Steam",
-                    resolveSteamName(appid), appid,
-                    String.format(HEADER_CDN, appid),
-                    sessionSeconds(key, now), null, "registry"),
-                    key);
-            return;
+            // 1) Steam 注册表（最可靠）
+            int appid = readSteamAppId();
+            if (appid != 0) {
+                String key = "steam:" + appid;
+                log.info("检测到 Steam 游戏 appid={}", appid);
+                setGame(buildGame(true, "steam", "Steam",
+                        resolveSteamName(appid), appid,
+                        String.format(HEADER_CDN, appid),
+                        sessionSeconds(key, now), null, "registry"),
+                        key);
+                return;
+            }
+
+            // 2) 其它平台：进程检测
+            GameProcess hit = detectProcess();
+            if (hit != null) {
+                String platform = hit.getPlatform() == null ? "custom" : hit.getPlatform();
+                String key = "proc:" + platform.toLowerCase() + ":" + hit.getName();
+                String label = platformLabel(platform);
+                log.info("检测到进程游戏 {} ({})", hit.getName(), label);
+                setGame(buildGame(true, platform, label, hit.getName(), null, null,
+                        sessionSeconds(key, now), null, "process"), key);
+                return;
+            }
+
+            prevKey = "";
+            startedAt = 0L;
+            setGame(new Game(), "none");
+        } catch (Exception e) {
+            log.warn("游戏检测出错: {}", e.getMessage());
         }
-
-        // 2) 其它平台：进程检测
-        GameProcess hit = detectProcess();
-        if (hit != null) {
-            String platform = hit.getPlatform() == null ? "custom" : hit.getPlatform();
-            String key = "proc:" + platform.toLowerCase() + ":" + hit.getName();
-            String label = platformLabel(platform);
-            setGame(buildGame(true, platform, label, hit.getName(), null, null,
-                    sessionSeconds(key, now), null, "process"), key);
-            return;
-        }
-
-        prevKey = "";
-        startedAt = 0L;
-        setGame(new Game(), "none");
     }
 
     // ---------- 对外 ----------
@@ -380,6 +386,25 @@ public class GameService {
         defaults.put("cyberpunk2077", new GameProcess("赛博朋克 2077", "epic"));
         defaults.put("witcher3", new GameProcess("巫师 3", "gog"));
         defaults.put("acvalhalla", new GameProcess("刺客信条：英灵殿", "ubisoft"));
+        defaults.put("fortniteclient-win64-shipping", new GameProcess("堡垒之夜", "epic"));
+        defaults.put("r5apex", new GameProcess("Apex 英雄", "epic"));
+        defaults.put("borderlands3", new GameProcess("无主之地 3", "epic"));
+        defaults.put("starwarsjedifallenorder", new GameProcess("星球大战 绝地：陨落的武士团", "epic"));
+        defaults.put("control", new GameProcess("控制", "epic"));
+        defaults.put("r6", new GameProcess("彩虹六号：围攻", "ubisoft"));
+        defaults.put("rainbowsix", new GameProcess("彩虹六号：围攻", "ubisoft"));
+        defaults.put("acodyssey", new GameProcess("刺客信条：奥德赛", "ubisoft"));
+        defaults.put("farcry5", new GameProcess("孤岛惊魂 5", "ubisoft"));
+        defaults.put("division2", new GameProcess("全境封锁 2", "ubisoft"));
+        defaults.put("gta5", new GameProcess("侠盗猎车手 5", "custom"));
+        defaults.put("rdr2", new GameProcess("荒野大镖客 2", "custom"));
+        defaults.put("valorant-win64-shipping", new GameProcess("无畏契约", "custom"));
+        defaults.put("overwatch", new GameProcess("守望先锋 2", "custom"));
+        defaults.put("deadbydaylight", new GameProcess("黎明杀机", "custom"));
+        defaults.put("cs2", new GameProcess("反恐精英 2", "custom"));
+        defaults.put("dota2", new GameProcess("Dota 2", "custom"));
+        defaults.put("racing", new GameProcess("极限竞速：地平线 5", "custom"));
+        defaults.put("forzahorizon5", new GameProcess("极限竞速：地平线 5", "custom"));
         s.setCustomGames(defaults);
         return s;
     }
