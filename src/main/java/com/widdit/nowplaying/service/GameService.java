@@ -5,9 +5,6 @@ import com.alibaba.fastjson.JSONObject;
 import com.widdit.nowplaying.entity.Game;
 import com.widdit.nowplaying.entity.GameProcess;
 import com.widdit.nowplaying.entity.GameSettings;
-import com.sun.jna.platform.win32.Kernel32;
-import com.sun.jna.platform.win32.Tlhelp32;
-import com.sun.jna.platform.win32.WinNT.HANDLE;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -340,35 +337,27 @@ public class GameService {
         }
     }
 
-    /** 枚举系统所有正在运行的进程的可执行文件名（Windows 标准 API，能拿到其它进程）。 */
+    /**
+     * 枚举系统所有正在运行的进程的可执行文件名。
+     * 使用 Windows 自带的 tasklist（可靠、无需 JNA，避免不同 JNA 版本的 HANDLE 签名差异）。
+     */
     private List<RunningProc> enumerateProcesses() {
         List<RunningProc> result = new ArrayList<>();
-        HANDLE snap = null;
-        try {
-            snap = Kernel32.INSTANCE.CreateToolhelp32Snapshot(Tlhelp32.TH32CS_SNAPPROCESS, 0);
-            if (snap == null || snap.equals(Kernel32.INVALID_HANDLE_VALUE)) {
-                return result;
+        String out = runCommand("tasklist", "/FO", "CSV", "/NH");
+        if (out == null || out.isEmpty()) {
+            return result;
+        }
+        Set<String> seen = new LinkedHashSet<>();
+        for (String line : out.split("\r?\n")) {
+            line = line.trim();
+            if (line.isEmpty()) {
+                continue;
             }
-            Tlhelp32.PROCESSENTRY32.ByReference pe = new Tlhelp32.PROCESSENTRY32.ByReference();
-            // JNA 的 DWORD 构造器只接受 long(int 不能直接转 DWORD)
-            pe.dwSize = new com.sun.jna.platform.win32.WinDef.DWORD((long) pe.size());
-            boolean ok = Kernel32.INSTANCE.Process32First(snap, pe);
-            while (ok) {
-                String exe = new String(pe.szExeFile).trim();
-                if (!exe.isEmpty()) {
-                    String name = exe.toLowerCase().replaceAll("\\.exe$", "");
-                    result.add(new RunningProc(name, prettify(name)));
-                }
-                ok = Kernel32.INSTANCE.Process32Next(snap, pe);
-            }
-        } catch (Exception e) {
-            log.warn("枚举进程失败: {}", e.getMessage());
-        } finally {
-            if (snap != null && !snap.equals(Kernel32.INVALID_HANDLE_VALUE)) {
-                try {
-                    Kernel32.INSTANCE.CloseHandle(snap);
-                } catch (Exception ignored) {
-                }
+            line = line.startsWith("\"") ? line.substring(1) : line;
+            String exe = line.split("\"", 2)[0].trim();
+            String name = exe.toLowerCase().replaceAll("\\.exe$", "");
+            if (!name.isEmpty() && seen.add(name)) {
+                result.add(new RunningProc(name, prettify(name)));
             }
         }
         return result;
